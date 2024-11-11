@@ -7,6 +7,8 @@ Quartz v4 features a from-the-ground rewrite focusing on end-user extensibility 
 
 🔗 Read the documentation and get started: https://quartz.jzhao.xyz/
 
+[中文文档](https://bill.is-a.dev/quartz-doc-cn/)
+
 [Join the Discord Community](https://discord.gg/cRFFHYye7t)
 
 ## Sponsors

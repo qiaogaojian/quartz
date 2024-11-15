@@ -100,6 +100,8 @@ async function processNotes(pages) {
 
     // 创建 notesMap，存储笔记路径到笔记对象的映射
     let notesMap = new Map();
+    // 创建 backlinksMap，存储笔记路径到其 backlinks 的映射
+    let backlinksMap = new Map();
 
     // 遍历每个页面，预处理笔记，生成 create_hash，并存储到 notesMap
     for (let page of pages) {
@@ -139,7 +141,7 @@ async function processNotes(pages) {
         let isTop = tags.includes("top");
 
         // 处理内部链接、图片和附件
-        fileContent = await processContent(fileContent, page, config, notesMap);
+        fileContent = await processContent(fileContent, page, config, notesMap, backlinksMap);
         
         // 生成元数据（Front Matter）
         let frontMatter = generateFrontMatter(page, tags, isTop, config);
@@ -147,15 +149,45 @@ async function processNotes(pages) {
         // 合并元数据和内容
         let newContent = frontMatter + "\n" + fileContent;
 
-        // 将新内容写入 Quartz 博客目录
-        await saveToHexo(newContent, page, config);
+        // Store newContent in page object
+        page.newContent = newContent;
 
+        console.log(`处理笔记：${page.create_hash} ${page.file.name}`);
+    }
+
+    // 处理 backlinks
+    for (let [linkedFilePath, backlinkPaths] of backlinksMap.entries()) {
+        if (notesMap.has(linkedFilePath)) {
+            let linkedPage = notesMap.get(linkedFilePath);
+            // Get the backlinks as an array
+            let backlinks = Array.from(backlinkPaths).map(backlinkPath => {
+                if (notesMap.has(backlinkPath)) {
+                    let backlinkPage = notesMap.get(backlinkPath);
+                    return `[${backlinkPage.file.name}](/${backlinkPage.create_hash})`;
+                } else {
+                    return '';
+                }
+            }).filter(link => link !== '');
+
+            // Append backlinks to the content of linkedPage
+            if (backlinks.length > 0) {
+                linkedPage.newContent += '\n\n## Backlinks\n\n';
+                backlinks.forEach(link => {
+                    linkedPage.newContent += `- ${link}\n`;
+                });
+            }
+        }
+    }
+
+    // 保存笔记到 Quartz 博客目录
+    for (let page of pages) {
+        await saveToHexo(page, config);
         console.log(`生成笔记：${page.create_hash} ${page.file.name}`);
     }
 }
 
 // 处理笔记内容，替换内部链接、资源路径，并清理内容
-async function processContent(content, page, config, notesMap) {
+async function processContent(content, page, config, notesMap, backlinksMap) {
     const fs = require('fs');
     const path = require('path');
 
@@ -238,16 +270,33 @@ async function processContent(content, page, config, notesMap) {
         } else {
             // 资源文件不存在，可能是 Obsidian 内部链接
             // 使用 app.metadataCache.getFirstLinkpathDest 来解析内部链接
-            let linkedFile = app.metadataCache.getFirstLinkpathDest(resourcePath, page.file.path);
+
+            // 如果 resourcePath 包含 '#', 分割它
+            let [linkedFilePath, heading] = resourcePath.split('#');
+
+            // 现在获取链接的文件
+            let linkedFile = app.metadataCache.getFirstLinkpathDest(linkedFilePath, page.file.path);
+
             if (linkedFile) {
-                let linkedFilePath = linkedFile.path;
+                let linkedFilePathFull = linkedFile.path;
                 // 检查 linkedFilePath 是否在 notesMap 中
-                if (notesMap.has(linkedFilePath)) {
-                    let linkedPage = notesMap.get(linkedFilePath);
+                if (notesMap.has(linkedFilePathFull)) {
+                    let linkedPage = notesMap.get(linkedFilePathFull);
                     let linkedHash = linkedPage.create_hash;
                     let linkedNoteName = linkedPage.file.name;
 
-                    return `[${linkedNoteName}](${linkedHash})`;
+                    // 添加到 backlinksMap
+                    if (!backlinksMap.has(linkedFilePathFull)) {
+                        backlinksMap.set(linkedFilePathFull, new Set());
+                    }
+                    backlinksMap.get(linkedFilePathFull).add(page.file.path);
+
+                    // 构建链接
+                    if (heading) {
+                        return `[${linkedNoteName}#${heading}](/${linkedHash}#${encodeURIComponent(heading)})`;
+                    } else {
+                        return `[${linkedNoteName}](/${linkedHash})`;
+                    }
                 } else {
                     // 如果链接的笔记不在 notesMap 中，可能不需要处理，或者用原始的链接
                     console.warn(`链接的笔记未找到或未包含在分享范围内：${resourcePath}`);
@@ -312,7 +361,7 @@ function generateFrontMatter(page, tags, isTop, config) {
 }
 
 // 将新内容保存到 Quartz 博客目录
-async function saveToHexo(content, page, config) {
+async function saveToHexo(page, config) {
     const fs = require('fs');
     const path = require('path');
 
@@ -330,7 +379,7 @@ async function saveToHexo(content, page, config) {
     fs.mkdirSync(path.dirname(notePath), { recursive: true });
 
     // 写入文件
-    fs.writeFileSync(notePath, content, 'utf8');
+    fs.writeFileSync(notePath, page.newContent, 'utf8');
 }
 
 // 复制资源文件到 Quartz 博客目录

@@ -236,8 +236,28 @@ async function processContent(content, page, config, notesMap) {
                 }
             }
         } else {
-            // 资源文件不存在，可能是 Obsidian 内部链接，不处理
-            return match;
+            // 资源文件不存在，可能是 Obsidian 内部链接
+            // 使用 app.metadataCache.getFirstLinkpathDest 来解析内部链接
+            let linkedFile = app.metadataCache.getFirstLinkpathDest(resourcePath, page.file.path);
+            if (linkedFile) {
+                let linkedFilePath = linkedFile.path;
+                // 检查 linkedFilePath 是否在 notesMap 中
+                if (notesMap.has(linkedFilePath)) {
+                    let linkedPage = notesMap.get(linkedFilePath);
+                    let linkedHash = linkedPage.create_hash;
+                    let linkedNoteName = linkedPage.file.name;
+
+                    return `[${linkedNoteName}](${linkedHash})`;
+                } else {
+                    // 如果链接的笔记不在 notesMap 中，可能不需要处理，或者用原始的链接
+                    console.warn(`链接的笔记未找到或未包含在分享范围内：${resourcePath}`);
+                    return match;
+                }
+            } else {
+                // 无法解析链接，返回原始内容
+                console.warn(`无法解析内部链接：${resourcePath}`);
+                return match;
+            }
         }
     });
 

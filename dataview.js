@@ -162,9 +162,66 @@ async function processContent(content, page, config, notesMap) {
     // 定义有效的图片扩展名列表
     const imageExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg'];
 
-    // **首先处理图片和附件 ![[...]] (Obsidian 内部图片嵌入)**
-    content = content.replace(/!\[\[([^\]]+)\]\]/g, (match, p1) => {
-        // ...（保持不变）
+    // **首先处理 Obsidian 图片嵌入 ![[...]]**
+    content = content.replace(/!\[\[(.*?)\]\]/g, (match, p1) => {
+        console.log(`匹配到的整个内容：${match}`);
+        console.log(`提取到的资源路径：${p1}`);
+        let resourcePath = p1.trim();
+
+        console.log(`处理内嵌资源：${resourcePath}`);
+
+        // 获取文件扩展名
+        let ext = path.extname(resourcePath).toLowerCase();
+
+        // 处理图片文件
+        if (imageExtensions.includes(ext)) {
+            // 复制资源文件到 Quartz 目录
+            if (copyResource(resourcePath, config)) {
+                return `![](/images/${encodeURI(resourcePath)})`;
+            } else {
+                console.warn(`资源文件不存在：${resourcePath}`);
+                return `![Missing Image](${resourcePath})`;
+            }
+        } else {
+            // 非图片文件，保留原始内容
+            return match;
+        }
+    });
+
+    // **然后处理图片链接 ![...](...)**
+    content = content.replace(/!\[.*?\]\((.*?)\)/g, (match, p1) => {
+        console.log(`匹配到的整个内容：${match}`);
+        console.log(`提取到的资源路径：${p1}`);
+        let resourcePath = p1.trim();
+
+        // 移除尖括号（如果有）
+        if (resourcePath.startsWith('<') && resourcePath.endsWith('>')) {
+            resourcePath = resourcePath.slice(1, -1).trim();
+        }
+
+        console.log(`处理资源链接：${resourcePath}`);
+
+        // 如果是 HTTP 链接，直接返回原始内容
+        if (resourcePath.startsWith("http")) {
+            return match;
+        }
+
+        // 获取文件扩展名
+        let ext = path.extname(resourcePath).toLowerCase();
+
+        // 处理图片文件
+        if (imageExtensions.includes(ext)) {
+            // 复制资源文件到 Quartz 目录
+            if (copyResource(resourcePath, config)) {
+                return `![](/images/${encodeURI(resourcePath)})`;
+            } else {
+                console.warn(`资源文件不存在：${resourcePath}`);
+                return `![Missing Image](${resourcePath})`;
+            }
+        } else {
+            // 非图片文件，保留原始内容
+            return match;
+        }
     });
 
     // **处理普通的内部链接 [[...]]**
@@ -205,13 +262,9 @@ async function processContent(content, page, config, notesMap) {
         }
     });
 
-    // **处理外部资源链接，包括非图片文件**
-    content = content.replace(/!\[.*?\]\(\s*(<.*?>|.*?)\s*\)/g, (match, p1) => {
-        // ...（保持不变）
-    });
-
-    // **处理普通的 Markdown 链接 [文本](链接)**
-    content = content.replace(/\[([^\]]+)\]\(\s*(<.*?>|.*?)\s*\)/g, (match, p1, p2) => {
+    // **处理普通的 Markdown 链接 [文本](链接)，排除图片链接**
+    content = content.replace(/(?<!\!)\[(.*?)\]\(\s*(<.*?>|.*?)\s*\)/g, (match, p1, p2) => {
+        console.log(`匹配到的整个内容：${match}`);
         let linkText = p1;
         let resourcePath = p2.trim();
 
@@ -243,12 +296,27 @@ async function processContent(content, page, config, notesMap) {
         }
     });
 
-    // **内容清理部分（保持不变）**
-    // ...
+    // **内容清理，根据 Python 代码的 get_full_content 方法**
+    // 1. 移除代码块标记或 '??' 后的任何字符，直到下一个空白字符
+    content = content.replace(/((```[\w]*|\?\?)(?=\s))(.*)/g, '$1');
+
+    // 2. 将 '```run-' 替换为 '```'
+    content = content.replace(/```run-/g, '```');
+
+    // 3. 将以 '??' 开头的行及其后面的字符替换为空格
+    content = content.replace(/\?\?.*/g, '  ');
+
+    // 4. 在二级及以上标题前插入两个空格
+    content = content.replace(/(\n)(#{2,})/g, '$1  $2');
+
+    // 5. 确保在二级及以上标题前有一个换行符
+    content = content.replace(/([^\n])(\n#{2,})/g, '$1\n  $2');
+
+    // 6. 确保标题后有一个空行
+    content = content.replace(/(#{2,}.*\n)(?!\n)/g, '$1\n');
 
     return content;
 }
-
 
 // 生成元数据（Front Matter）
 function generateFrontMatter(page, tags, isTop, config) {

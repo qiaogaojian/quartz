@@ -174,7 +174,7 @@ async function processContent(content, page, config, notesMap) {
         let ext = path.extname(resourcePath).toLowerCase();
         if (imageExtensions.includes(ext)) {
             // 复制资源文件到 Quartz 目录
-            if (copyResource(resourcePath, config)) {
+            if (copyResource(resourcePath, config, 'images')) {
                 return `![](/images/${encodeURI(resourcePath)})`;
             } else {
                 console.warn(`资源文件不存在：${resourcePath}`);
@@ -208,15 +208,58 @@ async function processContent(content, page, config, notesMap) {
         let ext = path.extname(resourcePath).toLowerCase();
         if (imageExtensions.includes(ext)) {
             // 复制资源文件到 Quartz 目录
-            if (copyResource(resourcePath, config)) {
+            if (copyResource(resourcePath, config, 'images')) {
                 return `![](/images/${encodeURI(resourcePath)})`;
             } else {
                 console.warn(`资源文件不存在：${resourcePath}`);
                 return `![Missing Image](${resourcePath})`;
             }
         } else {
-            // 非图片文件，可能是附件或其他文件，视情况处理
+            // 非图片文件，可能是附件或其他文件
+            // 复制资源文件到 Quartz 目录的 download 文件夹
+            if (copyResource(resourcePath, config, 'download')) {
+                return `![${path.basename(resourcePath)}](/download/${encodeURI(resourcePath)})`;
+            } else {
+                console.warn(`文件资源不存在：${resourcePath}`);
+                return `![Missing File](${resourcePath})`;
+            }
+        }
+    });
+
+    // **处理文件链接 [文本](链接)**
+    content = content.replace(/\[([^\]]+)\]\(\s*(<.*?>|.*?)\s*\)/g, (match, p1, p2) => {
+        console.log(`匹配到的整个内容：${match}`);
+        console.log(`提取到的文本：${p1}`);
+        console.log(`提取到的链接：${p2}`);
+
+        let linkText = p1.trim();
+        let resourcePath = p2.trim();
+
+        // 移除尖括号（如果有）
+        if (resourcePath.startsWith('<') && resourcePath.endsWith('>')) {
+            resourcePath = resourcePath.slice(1, -1).trim();
+        }
+
+        // 如果是 HTTP 链接或锚点链接，直接返回原始内容
+        if (resourcePath.startsWith("http") || resourcePath.startsWith("#")) {
             return match;
+        }
+
+        // 检查文件扩展名是否是图片
+        let ext = path.extname(resourcePath).toLowerCase();
+        if (imageExtensions.includes(ext)) {
+            // 已在图片处理中处理过
+            return match;
+        }
+
+        console.log(`处理文件链接：${resourcePath}`);
+
+        // 复制资源文件到 Quartz 目录的 download 文件夹
+        if (copyResource(resourcePath, config, 'download')) {
+            return `[${linkText}](/download/${encodeURI(resourcePath)})`;
+        } else {
+            console.warn(`文件资源不存在：${resourcePath}`);
+            return `[${linkText}](#)`;
         }
     });
 
@@ -232,15 +275,32 @@ async function processContent(content, page, config, notesMap) {
             let linkedFilePathRelative = linkedFile.path;
             let linkedNote = notesMap.get(linkedFilePathRelative);
             let linkHash = linkedNote ? linkedNote.create_hash : null;
+
             if (linkHash) {
+                // 链接到笔记
                 return `[${linkedNote.file.name}](${linkHash}.html)`;
             } else {
-                // 如果链接的笔记不在共享范围内，可以决定如何处理
+                // 链接到非共享的笔记，可以决定如何处理
                 return `[${linkName}](#)`;
             }
         } else {
-            // 如果未找到链接的文件
-            return `[${linkName}](#)`;
+            // 如果未找到链接的文件，可能是一个文件
+            // 检查文件是否存在于资源文件夹中
+            let resourcePath = linkName.trim();
+            let resourceFullPath = path.join(config.pathFrom, config.resourceFolder, resourcePath);
+
+            if (fs.existsSync(resourceFullPath)) {
+                // 复制资源文件到 Quartz 目录的 download 文件夹
+                if (copyResource(resourcePath, config, 'download')) {
+                    return `[${linkName}](/download/${encodeURI(resourcePath)})`;
+                } else {
+                    console.warn(`文件资源不存在：${resourcePath}`);
+                    return `[${linkName}](#)`;
+                }
+            } else {
+                // 文件不存在，保持原样或指向锚点
+                return `[${linkName}](#)`;
+            }
         }
     });
 
@@ -317,7 +377,7 @@ async function saveToHexo(content, page, config) {
 }
 
 // 复制资源文件到 Quartz 博客目录
-function copyResource(resourcePath, config) {
+function copyResource(resourcePath, config, targetFolder = 'images') {
     const fs = require('fs');
     const path = require('path');
 
@@ -326,7 +386,7 @@ function copyResource(resourcePath, config) {
 
     // 使用 path.join 来处理路径，避免手动拼接
     let fromPath = path.join(config.pathFrom, config.resourceFolder, decodedResourcePath);
-    let toPath = path.join(config.pathTo, 'content', 'images', decodedResourcePath);
+    let toPath = path.join(config.pathTo, 'content', targetFolder, decodedResourcePath);
 
     console.log(`复制资源文件：从 ${fromPath} 到 ${toPath}`);
 

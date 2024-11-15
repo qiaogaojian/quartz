@@ -162,34 +162,14 @@ async function processContent(content, page, config, notesMap) {
     // 定义有效的图片扩展名列表
     const imageExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg'];
 
-    // 处理内部链接 [[...]]
-    content = content.replace(/\[\[([^\]]+)\]\]/g, (match, p1) => {
-        // 提取链接的文件名
-        let linkName = p1.split("|")[0];
-
-        // 解析链接到文件
-        let linkedFile = app.metadataCache.getFirstLinkpathDest(linkName, page.file.path);
-
-        if (linkedFile) {
-            let linkedFilePathRelative = linkedFile.path;
-            let linkedNote = notesMap.get(linkedFilePathRelative);
-            let linkHash = linkedNote ? linkedNote.create_hash : null;
-            if (linkHash) {
-                return `[${linkedNote.file.name}](${linkHash}.html)`;
-            } else {
-                // 如果链接的笔记不在共享范围内，可以决定如何处理
-                return `[${linkName}](#)`;
-            }
-        } else {
-            // 如果未找到链接的文件
-            return `[${linkName}](#)`;
-        }
-    });
-
-    // 处理图片和附件 ![[...]] (Obsidian 内部图片嵌入)
+    // **首先处理图片和附件 ![[...]] (Obsidian 内部图片嵌入)**
     content = content.replace(/!\[\[([^\]]+)\]\]/g, (match, p1) => {
+        console.log(`匹配到的整个内容：${match}`);
+        console.log(`提取到的资源路径：${p1}`);
         let resourcePath = p1.trim();
+
         console.log(`处理内嵌资源：${resourcePath}`);
+
         // 检查文件是否为图片
         let ext = path.extname(resourcePath).toLowerCase();
         if (imageExtensions.includes(ext)) {
@@ -206,9 +186,17 @@ async function processContent(content, page, config, notesMap) {
         }
     });
 
-    // 处理外部资源链接 ![...](...)
-    content = content.replace(/!\[.*?\]\((.+?)\)/g, (match, p1) => {
+    // **然后处理外部资源链接 ![...](...)**
+    content = content.replace(/!\[.*?\]\(\s*(<.*?>|.*?)\s*\)/g, (match, p1) => {
+        console.log(`匹配到的整个内容：${match}`);
+        console.log(`提取到的资源路径：${p1}`);
         let resourcePath = p1.trim();
+
+        // 移除尖括号（如果有）
+        if (resourcePath.startsWith('<') && resourcePath.endsWith('>')) {
+            resourcePath = resourcePath.slice(1, -1).trim();
+        }
+
         console.log(`处理资源链接：${resourcePath}`);
 
         // 如果是 HTTP 链接，直接返回原始内容
@@ -229,6 +217,30 @@ async function processContent(content, page, config, notesMap) {
         } else {
             // 非图片文件，可能是附件或其他文件，视情况处理
             return match;
+        }
+    });
+
+    // **最后处理内部链接 [[...]]，并确保不匹配以 ! 开头的链接**
+    content = content.replace(/(?<!\!)\[\[([^\]]+)\]\]/g, (match, p1) => {
+        // 提取链接的文件名
+        let linkName = p1.split("|")[0];
+
+        // 解析链接到文件
+        let linkedFile = app.metadataCache.getFirstLinkpathDest(linkName, page.file.path);
+
+        if (linkedFile) {
+            let linkedFilePathRelative = linkedFile.path;
+            let linkedNote = notesMap.get(linkedFilePathRelative);
+            let linkHash = linkedNote ? linkedNote.create_hash : null;
+            if (linkHash) {
+                return `[${linkedNote.file.name}](${linkHash}.html)`;
+            } else {
+                // 如果链接的笔记不在共享范围内，可以决定如何处理
+                return `[${linkName}](#)`;
+            }
+        } else {
+            // 如果未找到链接的文件
+            return `[${linkName}](#)`;
         }
     });
 

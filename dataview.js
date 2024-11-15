@@ -228,8 +228,11 @@ async function processContent(content, page, config, notesMap, backlinksMap) {
         let linkText, resourcePath;
         if (p1) {
             // [[...]] 格式
-            resourcePath = p1.trim();
-            linkText = p1.trim();
+            let linkInner = p1.trim();
+            // 处理别名 [[link|alias]]
+            let [linkTarget, linkAlias] = linkInner.split('|');
+            resourcePath = linkTarget.trim();
+            linkText = linkAlias ? linkAlias.trim() : linkTarget.trim();
         } else {
             // [text](link) 格式
             linkText = p2.trim();
@@ -269,13 +272,18 @@ async function processContent(content, page, config, notesMap, backlinksMap) {
             }
         } else {
             // 资源文件不存在，可能是 Obsidian 内部链接
+            // 处理内部链接和别名，以及标题锚点
+
+            // 处理可能存在的标题锚点
+            let heading = null;
+            if (resourcePath.includes('#')) {
+                let parts = resourcePath.split('#');
+                resourcePath = parts[0].trim();
+                heading = parts[1] ? parts[1].trim() : null;
+            }
+
             // 使用 app.metadataCache.getFirstLinkpathDest 来解析内部链接
-
-            // 如果 resourcePath 包含 '#', 分割它
-            let [linkedFilePath, heading] = resourcePath.split('#');
-
-            // 现在获取链接的文件
-            let linkedFile = app.metadataCache.getFirstLinkpathDest(linkedFilePath, page.file.path);
+            let linkedFile = app.metadataCache.getFirstLinkpathDest(resourcePath, page.file.path);
 
             if (linkedFile) {
                 let linkedFilePathFull = linkedFile.path;
@@ -283,7 +291,6 @@ async function processContent(content, page, config, notesMap, backlinksMap) {
                 if (notesMap.has(linkedFilePathFull)) {
                     let linkedPage = notesMap.get(linkedFilePathFull);
                     let linkedHash = linkedPage.create_hash;
-                    let linkedNoteName = linkedPage.file.name;
 
                     // 添加到 backlinksMap
                     if (!backlinksMap.has(linkedFilePathFull)) {
@@ -292,11 +299,14 @@ async function processContent(content, page, config, notesMap, backlinksMap) {
                     backlinksMap.get(linkedFilePathFull).add(page.file.path);
 
                     // 构建链接
+                    let linkHref;
                     if (heading) {
-                        return `[${linkedNoteName}#${heading}](/${linkedHash}#${encodeURIComponent(heading)})`;
+                        linkHref = `${linkedHash}#${encodeURIComponent(heading)}`;
                     } else {
-                        return `[${linkedNoteName}](/${linkedHash})`;
+                        linkHref = `${linkedHash}`;
                     }
+
+                    return `[${linkText}](${linkHref})`;
                 } else {
                     // 如果链接的笔记不在 notesMap 中，可能不需要处理，或者用原始的链接
                     console.warn(`链接的笔记未找到或未包含在分享范围内：${resourcePath}`);

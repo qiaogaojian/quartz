@@ -99,6 +99,19 @@ async function processNotes(pages) {
     const fs = require('fs');
     const path = require('path');
 
+    // **在处理笔记之前，删除目标目录**
+    try {
+        const targetContentDir = path.join(config.pathTo, 'content');
+        const targetPublicDir = path.join(config.pathTo, 'public');
+        fs.rmSync(targetContentDir, { recursive: true, force: true });
+        fs.rmSync(targetPublicDir, { recursive: true, force: true });
+        // 重新创建目标内容目录
+        fs.mkdirSync(targetContentDir, { recursive: true });
+        console.log("已成功删除并重新创建目标目录。");
+    } catch (err) {
+        console.error('删除目标目录时出错：', err);
+    }
+
     // 创建 notesMap，存储笔记路径到笔记对象的映射
     let notesMap = new Map();
     // 创建 backlinksMap，存储笔记路径到其 backlinks 的映射

@@ -92,7 +92,8 @@ async function processNotes(pages) {
         pathTo: "D:/Git/Note/quartz", // Quartz 博客的根目录
         resourceFolder: "res", // 资源文件夹
         excludeFolders: ["res", "stash", ".obsidian", "7.输入", ".git"], // 排除的文件夹
-        shareTag: "#share" // 分享标签
+        shareTag: "#share", // 分享标签
+        includeBacklinks: false // 是否包含 Backlinks（默认 false）
     };
 
     const fs = require('fs');
@@ -135,6 +136,11 @@ async function processNotes(pages) {
         // 读取文件内容
         let fileContent = await app.vault.cachedRead(tfile);
 
+        // **跳过第一行内容**
+        let lines = fileContent.split('\n');
+        lines.shift(); // 移除第一行
+        fileContent = lines.join('\n');
+
         // 处理标签
         let tags = page.file.tags.map(tag => tag.replace("#", ""));
         let isShare = tags.includes(config.shareTag.replace("#", ""));
@@ -149,7 +155,7 @@ async function processNotes(pages) {
         // 合并元数据和内容
         let newContent = frontMatter + "\n" + fileContent;
 
-        // Store newContent in page object
+        // 将新内容存储在 page 对象中
         page.newContent = newContent;
 
         console.log(`处理笔记：${page.create_hash} ${page.file.name}`);
@@ -170,7 +176,7 @@ async function processNotes(pages) {
             }).filter(link => link !== '');
 
             // Append backlinks to the content of linkedPage
-            if (backlinks.length > 0) {
+            if (backlinks.length > 0 && config.includeBacklinks) {
                 linkedPage.newContent += '\n\n## Backlinks\n\n';
                 backlinks.forEach(link => {
                     linkedPage.newContent += `- ${link}\n`;

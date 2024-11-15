@@ -189,6 +189,7 @@ async function processContent(content, page, config, notesMap) {
     // 处理图片和附件 ![[...]] (Obsidian 内部图片嵌入)
     content = content.replace(/!\[\[([^\]]+)\]\]/g, (match, p1) => {
         let resourcePath = p1.trim();
+        console.log(`处理内嵌资源：${resourcePath}`);
         // 检查文件是否为图片
         let ext = path.extname(resourcePath).toLowerCase();
         if (imageExtensions.includes(ext)) {
@@ -196,7 +197,7 @@ async function processContent(content, page, config, notesMap) {
             if (copyResource(resourcePath, config)) {
                 return `![](/images/${encodeURI(resourcePath)})`;
             } else {
-                console.log(`资源文件不存在：${resourcePath}`);
+                console.warn(`资源文件不存在：${resourcePath}`);
                 return `![Missing Image](${resourcePath})`;
             }
         } else {
@@ -208,6 +209,7 @@ async function processContent(content, page, config, notesMap) {
     // 处理外部资源链接 ![...](...)
     content = content.replace(/!\[.*?\]\((.+?)\)/g, (match, p1) => {
         let resourcePath = p1.trim();
+        console.log(`处理资源链接：${resourcePath}`);
 
         // 如果是 HTTP 链接，直接返回原始内容
         if (resourcePath.startsWith("http")) {
@@ -221,7 +223,7 @@ async function processContent(content, page, config, notesMap) {
             if (copyResource(resourcePath, config)) {
                 return `![](/images/${encodeURI(resourcePath)})`;
             } else {
-                console.log(`资源文件不存在：${resourcePath}`);
+                console.warn(`资源文件不存在：${resourcePath}`);
                 return `![Missing Image](${resourcePath})`;
             }
         } else {
@@ -310,8 +312,11 @@ function copyResource(resourcePath, config) {
     // 解码资源路径中的编码字符（例如，将 %20 转换回空格）
     let decodedResourcePath = decodeURI(resourcePath);
 
+    // 使用 path.join 来处理路径，避免手动拼接
     let fromPath = path.join(config.pathFrom, config.resourceFolder, decodedResourcePath);
     let toPath = path.join(config.pathTo, 'content', 'images', decodedResourcePath);
+
+    console.log(`复制资源文件：从 ${fromPath} 到 ${toPath}`);
 
     // 检查源文件是否存在
     if (!fs.existsSync(fromPath)) {
@@ -325,6 +330,7 @@ function copyResource(resourcePath, config) {
     // 复制文件
     try {
         fs.copyFileSync(fromPath, toPath);
+        console.log(`成功复制文件：${fromPath}`);
         return true;
     } catch (error) {
         console.error(`复制文件时出错：${error}`);

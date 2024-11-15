@@ -54,9 +54,9 @@ async function processNotes(pages) {
     // 配置参数，您可以根据需要调整
     const config = {
         pathFrom: app.vault.adapter.basePath, // Obsidian 笔记的根目录
-        pathTo: "D:/Git/Note/quartz", // Hexo 博客的根目录
+        pathTo: "D:/Git/Note/quartz/content", // Hexo 博客的根目录
         resourceFolder: "res", // 资源文件夹
-        excludeFolders: ["res", "stash", ".obsidian", "5.技能/English/Dictionary", "7.输入"], // 排除的文件夹
+        excludeFolders: ["res", "stash", ".obsidian", "7.输入", ".git"], // 排除的文件夹
         shareTag: "#share" // 分享标签
     };
 
@@ -66,10 +66,7 @@ async function processNotes(pages) {
     // 遍历每个页面，处理内容
     for (let page of pages) {
         // 读取笔记内容
-        //new Notice(`读取笔记内容`);   
-        // 获取 TFile 对象
         let tfile = app.vault.getAbstractFileByPath(page.file.path);
-        // 检查是否成功获取到 TFile 对象
         if (!(tfile instanceof TFile)) {
             console.error(`无法找到路径对应的文件：${page.file.path}`);
             return;
@@ -77,9 +74,6 @@ async function processNotes(pages) {
 
         // 读取文件内容
         let fileContent = await app.vault.cachedRead(tfile);
-        //let fileContent = await app.vault.cachedRead(page.file);
-
-        new Notice(`处理标签`);   
         let metadata = app.metadataCache.getFileCache(page.file);
 
         // 处理标签
@@ -88,15 +82,12 @@ async function processNotes(pages) {
         let isTop = tags.includes("top");
 
         // 处理内部链接、图片和附件
-        new Notice(`处理内部链接、图片和附件`);   
         fileContent = await processContent(fileContent, page, config);
         
         // 生成元数据（Front Matter）
-        new Notice(`生成元数据`);   
         let frontMatter = generateFrontMatter(page, tags, isTop);
 
         // 合并元数据和内容
-        new Notice(`合并元数据和内容`);   
         let newContent = frontMatter + "\n" + fileContent;
 
         // 将新内容写入 Hexo 博客目录

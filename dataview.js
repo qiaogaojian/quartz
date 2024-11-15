@@ -162,85 +162,82 @@ async function processContent(content, page, config, notesMap) {
     // 定义有效的图片扩展名列表
     const imageExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.svg'];
 
-    // **首先处理图片和附件 ![[...]] (Obsidian 内部图片嵌入)**
-    content = content.replace(/!\[\[([^\]]+)\]\]/g, (match, p1) => {
-        console.log(`匹配到的整个内容：${match}`);
-        console.log(`提取到的资源路径：${p1}`);
-        let resourcePath = p1.trim();
-
-        console.log(`处理内嵌资源：${resourcePath}`);
-
-        // 检查文件是否为图片
-        let ext = path.extname(resourcePath).toLowerCase();
-        if (imageExtensions.includes(ext)) {
-            // 复制资源文件到 Quartz 目录
-            if (copyResource(resourcePath, config)) {
-                return `![](/images/${encodeURI(resourcePath)})`;
-            } else {
-                console.warn(`资源文件不存在：${resourcePath}`);
-                return `![Missing Image](${resourcePath})`;
-            }
-        } else {
-            // 非图片文件，保留原始内容
+    // **处理图片链接**：以 ! 开头的链接
+    content = content.replace(/!\[\[(.*?)\]\]|!\[.*?\]\(\s*(<.*?>|.*?)\s*\)/g, (match, p1, p2) => {
+        let resourcePath = p1 || p2;
+        if (!resourcePath) {
             return match;
         }
-    });
-
-    // **然后处理外部资源链接 ![...](...)**
-    content = content.replace(/!\[.*?\]\(\s*(<.*?>|.*?)\s*\)/g, (match, p1) => {
-        console.log(`匹配到的整个内容：${match}`);
-        console.log(`提取到的资源路径：${p1}`);
-        let resourcePath = p1.trim();
 
         // 移除尖括号（如果有）
         if (resourcePath.startsWith('<') && resourcePath.endsWith('>')) {
             resourcePath = resourcePath.slice(1, -1).trim();
         }
 
-        console.log(`处理资源链接：${resourcePath}`);
+        console.log(`处理图片链接：${resourcePath}`);
 
         // 如果是 HTTP 链接，直接返回原始内容
         if (resourcePath.startsWith("http")) {
             return match;
         }
 
-        // 检查文件扩展名是否是有效的图片格式
-        let ext = path.extname(resourcePath).toLowerCase();
-        if (imageExtensions.includes(ext)) {
-            // 复制资源文件到 Quartz 目录
-            if (copyResource(resourcePath, config)) {
-                return `![](/images/${encodeURI(resourcePath)})`;
-            } else {
-                console.warn(`资源文件不存在：${resourcePath}`);
-                return `![Missing Image](${resourcePath})`;
-            }
+        // 复制资源文件到 Quartz 目录
+        if (copyResource(resourcePath, config, 'images')) {
+            return `![](/images/${encodeURI(resourcePath)})`;
         } else {
-            // 非图片文件，可能是附件或其他文件，视情况处理
-            return match;
+            console.warn(`资源文件不存在：${resourcePath}`);
+            return `![Missing Image](${resourcePath})`;
         }
     });
 
-    // **最后处理内部链接 [[...]]，并确保不匹配以 ! 开头的链接**
-    content = content.replace(/(?<!\!)\[\[([^\]]+)\]\]/g, (match, p1) => {
-        // 提取链接的文件名
-        let linkName = p1.split("|")[0];
+    // **处理文件链接**：不以 ! 开头的链接
+    content = content.replace(/\[\[(.*?)\]\]|\[([^\]]+)\]\(\s*(<.*?>|.*?)\s*\)/g, (match, p1, p2, p3) => {
+        // 如果是 [[...]] 格式，p1 有值；如果是 [text](link) 格式，p2 和 p3 有值
+        let linkText, resourcePath;
+        if (p1) {
+            // [[...]] 格式
+            resourcePath = p1.trim();
+            linkText = p1.trim();
+        } else {
+            // [text](link) 格式
+            linkText = p2.trim();
+            resourcePath = p3.trim();
+            // 移除尖括号（如果有）
+            if (resourcePath.startsWith('<') && resourcePath.endsWith('>')) {
+                resourcePath = resourcePath.slice(1, -1).trim();
+            }
+        }
 
-        // 解析链接到文件
-        let linkedFile = app.metadataCache.getFirstLinkpathDest(linkName, page.file.path);
+        // 如果是 HTTP 链接或锚点链接，直接返回原始内容
+        if (resourcePath.startsWith("http") || resourcePath.startsWith("#")) {
+            return match;
+        }
 
-        if (linkedFile) {
-            let linkedFilePathRelative = linkedFile.path;
-            let linkedNote = notesMap.get(linkedFilePathRelative);
-            let linkHash = linkedNote ? linkedNote.create_hash : null;
-            if (linkHash) {
-                return `[${linkedNote.file.name}](${linkHash}.html)`;
+        // 检查文件是否存在于资源文件夹中
+        let resourceFullPath = path.join(config.pathFrom, config.resourceFolder, resourcePath);
+        if (fs.existsSync(resourceFullPath)) {
+            // 检查是否为图片
+            let ext = path.extname(resourcePath).toLowerCase();
+            if (imageExtensions.includes(ext)) {
+                // 图片资源，复制到 images 文件夹
+                if (copyResource(resourcePath, config, 'images')) {
+                    return `![](/images/${encodeURI(resourcePath)})`;
+                } else {
+                    console.warn(`资源文件不存在：${resourcePath}`);
+                    return `![Missing Image](${resourcePath})`;
+                }
             } else {
-                // 如果链接的笔记不在共享范围内，可以决定如何处理
-                return `[${linkName}](#)`;
+                // 非图片资源，复制到 download 文件夹
+                if (copyResource(resourcePath, config, 'download')) {
+                    return `[${linkText}](/download/${encodeURI(resourcePath)})`;
+                } else {
+                    console.warn(`文件资源不存在：${resourcePath}`);
+                    return `[${linkText}](#)`;
+                }
             }
         } else {
-            // 如果未找到链接的文件
-            return `[${linkName}](#)`;
+            // 资源文件不存在，可能是 Obsidian 内部链接，不处理
+            return match;
         }
     });
 
@@ -317,7 +314,7 @@ async function saveToHexo(content, page, config) {
 }
 
 // 复制资源文件到 Quartz 博客目录
-function copyResource(resourcePath, config) {
+function copyResource(resourcePath, config, targetFolder = 'images') {
     const fs = require('fs');
     const path = require('path');
 
@@ -326,7 +323,7 @@ function copyResource(resourcePath, config) {
 
     // 使用 path.join 来处理路径，避免手动拼接
     let fromPath = path.join(config.pathFrom, config.resourceFolder, decodedResourcePath);
-    let toPath = path.join(config.pathTo, 'content', 'images', decodedResourcePath);
+    let toPath = path.join(config.pathTo, 'content', targetFolder, decodedResourcePath);
 
     console.log(`复制资源文件：从 ${fromPath} 到 ${toPath}`);
 

@@ -1,4 +1,3 @@
-
 const { TFile } = obsidian;
 
 async function executeQueryAndSave() {    
@@ -48,13 +47,46 @@ async function executeQueryAndSave() {
     await deployHexoSite();
 }
 
+// **实现 path2tag 函数**
+function pathToTags(filePath, basePath) {
+    const path = require('path');
+
+    // 统一路径分隔符
+    filePath = filePath.replace(/\\/g, '/');
+    basePath = basePath.replace(/\\/g, '/');
+
+    // 确保基础路径末尾有斜杠
+    if (!basePath.endsWith('/')) {
+        basePath += '/';
+    }
+
+    // 移除基础路径和文件名
+    let relativePath = filePath.replace(basePath, '').split('/').slice(0, -1).join('/');
+
+    // 分割路径
+    let parts = relativePath.split('/');
+
+    // 处理标签：移除空字符串、数字前缀，并处理特殊标记
+    let tags = [];
+    parts.forEach(part => {
+        if (part) {
+            // 移除数字前缀
+            part = part.replace(/^\d+\./, '');
+            // 处理特殊标记（如 _What_）
+            part = part.replace(/^_(.+)_$/, '$1');
+            tags.push(part);
+        }
+    });
+
+    return tags;
+}
 
 // **新的函数，用于处理笔记并生成 Hexo 所需的文件**
 async function processNotes(pages) {
     // 配置参数，您可以根据需要调整
     const config = {
         pathFrom: app.vault.adapter.basePath, // Obsidian 笔记的根目录
-        pathTo: "D:/Git/Note/quartz/content", // Hexo 博客的根目录
+        pathTo: "D:/Git/Note/quartz/content", // Quartz 博客的内容目录
         resourceFolder: "res", // 资源文件夹
         excludeFolders: ["res", "stash", ".obsidian", "7.输入", ".git"], // 排除的文件夹
         shareTag: "#share" // 分享标签
@@ -69,12 +101,11 @@ async function processNotes(pages) {
         let tfile = app.vault.getAbstractFileByPath(page.file.path);
         if (!(tfile instanceof TFile)) {
             console.error(`无法找到路径对应的文件：${page.file.path}`);
-            return;
+            continue;
         }
 
         // 读取文件内容
         let fileContent = await app.vault.cachedRead(tfile);
-        let metadata = app.metadataCache.getFileCache(page.file);
 
         // 处理标签
         let tags = page.file.tags.map(tag => tag.replace("#", ""));
@@ -85,17 +116,17 @@ async function processNotes(pages) {
         fileContent = await processContent(fileContent, page, config);
         
         // 生成元数据（Front Matter）
-        let frontMatter = generateFrontMatter(page, tags, isTop);
+        let frontMatter = generateFrontMatter(page, tags, isTop, config);
 
         // 合并元数据和内容
         let newContent = frontMatter + "\n" + fileContent;
 
-        // 将新内容写入 Hexo 博客目录
+        // 将新内容写入 Quartz 博客目录
         await saveToHexo(newContent, page, config);
     }
 }
 
-// 处理笔记内容，替换内部链接和资源路径
+// 处理笔记内容，替换内部链接、资源路径，并清理内容
 async function processContent(content, page, config) {
     const fs = require('fs');
     const path = require('path');
@@ -117,7 +148,7 @@ async function processContent(content, page, config) {
         // 检查文件是否为图片
         let ext = path.extname(resourcePath).toLowerCase();
         if (imageExtensions.includes(ext)) {
-            // 复制资源文件到 Hexo 目录
+            // 复制资源文件到 Quartz 目录
             if (copyResource(resourcePath, config)) {
                 return `![](/images/${encodeURIComponent(resourcePath)})`;
             } else {
@@ -142,7 +173,7 @@ async function processContent(content, page, config) {
         // 检查文件扩展名是否是有效的图片格式
         let ext = path.extname(resourcePath).toLowerCase();
         if (imageExtensions.includes(ext)) {
-            // 复制资源文件到 Hexo 目录
+            // 复制资源文件到 Quartz 目录
             if (copyResource(resourcePath, config)) {
                 return `![](/images/${encodeURIComponent(resourcePath)})`;
             } else {
@@ -156,15 +187,45 @@ async function processContent(content, page, config) {
         }
     });
 
+    // **内容清理，根据 Python 代码的 get_full_content 方法**
+
+    // 1. 移除代码块标记或 '??' 后的任何字符，直到下一个空白字符
+    content = content.replace(/((```[\w]*|\?\?)(?=\s))(.*)/g, '$1');
+
+    // 2. 将 '```run-' 替换为 '```'
+    content = content.replace(/```run-/g, '```');
+
+    // 3. 将以 '??' 开头的行及其后面的字符替换为空格
+    content = content.replace(/\?\?.*/g, '  ');
+
+    // 4. 在二级及以上标题前插入两个空格
+    content = content.replace(/(\n)(#{2,})/g, '$1  $2');
+
+    // 5. 确保在二级及以上标题前有一个换行符
+    content = content.replace(/([^\n])(\n#{2,})/g, '$1\n  $2');
+
+    // 6. 确保标题后有一个空行
+    content = content.replace(/(#{2,}.*\n)(?!\n)/g, '$1\n');
+
     return content;
 }
 
 // 生成元数据（Front Matter）
-function generateFrontMatter(page, tags, isTop) {
+function generateFrontMatter(page, tags, isTop, config) {
+    const path = require('path');
+
+    // 从文件路径中获取分类
+    let filePath = path.join(config.pathFrom, page.file.path);
+    let categories = pathToTags(filePath, config.pathFrom);
+
     let frontMatter = `---\n`;
     frontMatter += `title: "${page.file.name}"\n`;
     frontMatter += `date: "${new Date(page.file.ctime).toISOString()}"\n`;
     frontMatter += `updated: "${new Date(page.file.mtime).toISOString()}"\n`;
+    frontMatter += `categories:\n`;
+    categories.forEach(cat => {
+        frontMatter += `  - "${cat}"\n`;
+    });
     frontMatter += `tags:\n`;
     tags.forEach(tag => {
         frontMatter += `  - "${tag}"\n`;
@@ -176,30 +237,33 @@ function generateFrontMatter(page, tags, isTop) {
     return frontMatter;
 }
 
-// 将新内容保存到 Hexo 博客目录
+// 将新内容保存到 Quartz 博客目录
 async function saveToHexo(content, page, config) {
     const fs = require('fs');
     const path = require('path');
 
+    // 获取文件的相对路径
+    let filePathRelative = page.file.path; // 相对于 Vault 根目录的路径
+    let fileDir = path.dirname(filePathRelative);
+    let fileName = path.basename(filePathRelative, path.extname(filePathRelative));
+
     // 构建保存路径
-    let hexoContentPath = path.join(config.pathTo, "source", "_posts");
-    let fileName = page.file.name.replace(/\/|\\/g, "_") + ".md";
-    let filePath = path.join(hexoContentPath, fileName);
+    let notePath = path.join(config.pathTo, fileDir, fileName + '.md');
 
     // 确保目录存在
-    fs.mkdirSync(hexoContentPath, { recursive: true });
+    fs.mkdirSync(path.dirname(notePath), { recursive: true });
 
     // 写入文件
-    fs.writeFileSync(filePath, content, 'utf8');
+    fs.writeFileSync(notePath, content, 'utf8');
 }
 
-// 复制资源文件到 Hexo 博客目录
+// 复制资源文件到 Quartz 博客目录
 function copyResource(resourcePath, config) {
     const fs = require('fs');
     const path = require('path');
 
     let fromPath = path.join(config.pathFrom, config.resourceFolder, resourcePath);
-    let toPath = path.join(config.pathTo, "source", "images", resourcePath);
+    let toPath = path.join(config.pathTo, 'images', resourcePath);
 
     // 检查源文件是否存在
     if (!fs.existsSync(fromPath)) {
@@ -220,24 +284,23 @@ function copyResource(resourcePath, config) {
     }
 }
 
-// 部署
+// 部署 Quartz 网站
 async function deployHexoSite() {
-    // 请将此替换为您的实际命令 ID (从shell command设置处获取)
+    // 请将此替换为您的实际命令 ID (从 Shell Commands 插件设置中获取)
     const commandId = "obsidian-shellcommands:shell-command-mt9wsz27vz"; 
 
     if (app.commands.commands[commandId]) {
         await app.commands.executeCommandById(commandId);
-        new Notice("Hexo 博客已自动部署！");
+        new Notice("Quartz 博客已自动部署！");
     } else {
         new Notice(`未找到命令 ID 为 "${commandId}" 的 Shell Command。`);
     }
 }
 
-
 // **添加一个按钮来手动触发函数**
 // 创建按钮元素
 let button = document.createElement('button');
-button.textContent = "更新share笔记"; // 按钮显示的文字
+button.textContent = "更新 share 笔记"; // 按钮显示的文字
 button.id = "exportButton";
 button.className = "mod-cta";
 
@@ -248,7 +311,7 @@ button.addEventListener('click', async () => {
     } catch (error) {
         // 错误处理
         // new Notice(`执行失败：${error.message}`, 5000);
-        console.error('执行失败：', error); // 在控制台输出错误信息 ctrl + shift + i 查看
+        console.error('执行失败：', error); // 在控制台输出错误信息，按 Ctrl + Shift + I 查看
     } 
 });
 

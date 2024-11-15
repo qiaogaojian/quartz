@@ -196,7 +196,7 @@ async function processContent(content, page, config, notesMap) {
             if (copyResource(resourcePath, config)) {
                 return `![](/images/${encodeURI(resourcePath)})`;
             } else {
-                console.warn(`资源文件不存在：${resourcePath}`);
+                console.log(`资源文件不存在：${resourcePath}`);
                 return `![Missing Image](${resourcePath})`;
             }
         } else {
@@ -221,7 +221,7 @@ async function processContent(content, page, config, notesMap) {
             if (copyResource(resourcePath, config)) {
                 return `![](/images/${encodeURI(resourcePath)})`;
             } else {
-                console.warn(`资源文件不存在：${resourcePath}`);
+                console.log(`资源文件不存在：${resourcePath}`);
                 return `![Missing Image](${resourcePath})`;
             }
         } else {

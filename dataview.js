@@ -194,7 +194,7 @@ async function processContent(content, page, config, notesMap) {
         if (imageExtensions.includes(ext)) {
             // 复制资源文件到 Quartz 目录
             if (copyResource(resourcePath, config)) {
-                return `![](/images/${encodeURIComponent(resourcePath)})`;
+                return `![](/images/${encodeURI(resourcePath)})`;
             } else {
                 console.warn(`资源文件不存在：${resourcePath}`);
                 return `![Missing Image](${resourcePath})`;
@@ -219,14 +219,13 @@ async function processContent(content, page, config, notesMap) {
         if (imageExtensions.includes(ext)) {
             // 复制资源文件到 Quartz 目录
             if (copyResource(resourcePath, config)) {
-                return `![](/images/${encodeURIComponent(resourcePath)})`;
+                return `![](/images/${encodeURI(resourcePath)})`;
             } else {
                 console.warn(`资源文件不存在：${resourcePath}`);
                 return `![Missing Image](${resourcePath})`;
             }
         } else {
             // 非图片文件，可能是附件或其他文件，视情况处理
-            // 如果需要处理附件，可以在这里添加处理逻辑
             return match;
         }
     });
@@ -308,8 +307,11 @@ function copyResource(resourcePath, config) {
     const fs = require('fs');
     const path = require('path');
 
-    let fromPath = path.join(config.pathFrom, config.resourceFolder, resourcePath);
-    let toPath = path.join(config.pathTo, 'content', 'images', resourcePath);
+    // 解码资源路径中的编码字符（例如，将 %20 转换回空格）
+    let decodedResourcePath = decodeURI(resourcePath);
+
+    let fromPath = path.join(config.pathFrom, config.resourceFolder, decodedResourcePath);
+    let toPath = path.join(config.pathTo, 'content', 'images', decodedResourcePath);
 
     // 检查源文件是否存在
     if (!fs.existsSync(fromPath)) {

@@ -5,7 +5,33 @@ import * as Component from "./quartz/components"
 export const sharedPageComponents: SharedLayout = {
   head: Component.Head(),
   header: [],
-  afterBody: [],
+  afterBody: [
+    Component.Comments({
+      provider: "giscus",
+      options: {
+        // from data-repo
+        repo: "qiaogaojian/quartz",
+        // from data-repo-id
+        repoId: "R_kgDONMsC4g",
+        // from data-category
+        category: "Announcements",
+        // from data-category-id
+        categoryId: "DIC_kwDONMsC4s4CkLBr",
+        // how to map pages -> discussions
+        // defaults to 'url'
+        mapping: "pathname",
+        // use strict title matching
+        // defaults to true
+        strict: false,
+        // whether to enable reactions for the main post
+        // defaults to true
+        reactionsEnabled: true,
+        // where to put the comment input box relative to the comments
+        // defaults to 'bottom'
+        inputPosition: "top",
+      },
+    }),
+  ],
   footer: Component.Footer({
     links: {
       GitHub: "https://github.com/jackyzha0/quartz",

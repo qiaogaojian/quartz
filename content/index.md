@@ -8,3 +8,5 @@ tags: ['index.md']
 This is a blank Quartz installation. See the [文档](https://bill.is-a.dev/quartz-doc-cn/) for how to get started.
 
 update.
+
+test

@@ -1,7 +1,7 @@
 const { TFile } = obsidian;
+const crypto = require('crypto');
 
 async function executeQueryAndSave() {    
-
     // 1. 获取所有带有 #share 标签的笔记，并按文件路径排序
     let result = dv.pages().where(p => p.file.tags.includes("#share"))
         .sort(p => p.file.path, 'asc'); // 按路径升序排序
@@ -37,8 +37,6 @@ async function executeQueryAndSave() {
     // 获取结果的长度
     let resultLength = result.length;
     
-    // 通知用户文件已更新
-        
     // **在这里调用新的函数来处理笔记**
     await processNotes(result);
     new Notice(`${resultLength} 笔记已成功更新！`);   
@@ -47,7 +45,12 @@ async function executeQueryAndSave() {
     await deployHexoSite();
 }
 
-// **实现 path2tag 函数**
+// 实现 getSha1 函数
+function getSha1(content) {
+    return crypto.createHash('sha1').update(content).digest('hex');
+}
+
+// 实现 pathToTags 函数
 function pathToTags(filePath, basePath) {
     const path = require('path');
 
@@ -81,12 +84,12 @@ function pathToTags(filePath, basePath) {
     return tags;
 }
 
-// **新的函数，用于处理笔记并生成 Hexo 所需的文件**
+// **新的函数，用于处理笔记并生成 Quartz 所需的文件**
 async function processNotes(pages) {
     // 配置参数，您可以根据需要调整
     const config = {
         pathFrom: app.vault.adapter.basePath, // Obsidian 笔记的根目录
-        pathTo: "D:/Git/Note/quartz/content", // Quartz 博客的内容目录
+        pathTo: "D:/Git/Note/quartz", // Quartz 博客的根目录
         resourceFolder: "res", // 资源文件夹
         excludeFolders: ["res", "stash", ".obsidian", "7.输入", ".git"], // 排除的文件夹
         shareTag: "#share" // 分享标签
@@ -95,7 +98,30 @@ async function processNotes(pages) {
     const fs = require('fs');
     const path = require('path');
 
-    // 遍历每个页面，处理内容
+    // 创建 notesMap，存储笔记路径到笔记对象的映射
+    let notesMap = new Map();
+
+    // 遍历每个页面，预处理笔记，生成 create_hash，并存储到 notesMap
+    for (let page of pages) {
+        // 获取文件的相对路径
+        let filePathRelative = page.file.path; // 相对于 Vault 根目录的路径
+
+        // 生成 create_hash
+        let create_hash;
+        if (page.file.name.toLowerCase() === 'index') {
+            create_hash = page.file.name;
+        } else {
+            create_hash = getSha1(filePathRelative);
+        }
+
+        // 将 create_hash 存储在 page 对象中
+        page.create_hash = create_hash;
+
+        // 将笔记添加到 notesMap 中
+        notesMap.set(filePathRelative, page);
+    }
+
+    // 第二次遍历，处理笔记内容并保存
     for (let page of pages) {
         // 读取笔记内容
         let tfile = app.vault.getAbstractFileByPath(page.file.path);
@@ -113,7 +139,7 @@ async function processNotes(pages) {
         let isTop = tags.includes("top");
 
         // 处理内部链接、图片和附件
-        fileContent = await processContent(fileContent, page, config);
+        fileContent = await processContent(fileContent, page, config, notesMap);
         
         // 生成元数据（Front Matter）
         let frontMatter = generateFrontMatter(page, tags, isTop, config);
@@ -123,11 +149,13 @@ async function processNotes(pages) {
 
         // 将新内容写入 Quartz 博客目录
         await saveToHexo(newContent, page, config);
+
+        console.log(`生成笔记：${page.create_hash} ${page.file.name}`);
     }
 }
 
 // 处理笔记内容，替换内部链接、资源路径，并清理内容
-async function processContent(content, page, config) {
+async function processContent(content, page, config, notesMap) {
     const fs = require('fs');
     const path = require('path');
 
@@ -138,8 +166,24 @@ async function processContent(content, page, config) {
     content = content.replace(/\[\[([^\]]+)\]\]/g, (match, p1) => {
         // 提取链接的文件名
         let linkName = p1.split("|")[0];
-        let linkPath = linkName.replace(/\/|\\/g, "_");
-        return `[${linkName}](${linkPath}.html)`;
+
+        // 解析链接到文件
+        let linkedFile = app.metadataCache.getFirstLinkpathDest(linkName, page.file.path);
+
+        if (linkedFile) {
+            let linkedFilePathRelative = linkedFile.path;
+            let linkedNote = notesMap.get(linkedFilePathRelative);
+            let linkHash = linkedNote ? linkedNote.create_hash : null;
+            if (linkHash) {
+                return `[${linkedNote.file.name}](${linkHash}.html)`;
+            } else {
+                // 如果链接的笔记不在共享范围内，可以决定如何处理
+                return `[${linkName}](#)`;
+            }
+        } else {
+            // 如果未找到链接的文件
+            return `[${linkName}](#)`;
+        }
     });
 
     // 处理图片和附件 ![[...]] (Obsidian 内部图片嵌入)
@@ -245,10 +289,12 @@ async function saveToHexo(content, page, config) {
     // 获取文件的相对路径
     let filePathRelative = page.file.path; // 相对于 Vault 根目录的路径
     let fileDir = path.dirname(filePathRelative);
-    let fileName = path.basename(filePathRelative, path.extname(filePathRelative));
+
+    // 使用 create_hash 作为文件名
+    let fileName = page.create_hash + '.md';
 
     // 构建保存路径
-    let notePath = path.join(config.pathTo, fileDir, fileName + '.md');
+    let notePath = path.join(config.pathTo, 'content', fileDir, fileName);
 
     // 确保目录存在
     fs.mkdirSync(path.dirname(notePath), { recursive: true });
@@ -263,7 +309,7 @@ function copyResource(resourcePath, config) {
     const path = require('path');
 
     let fromPath = path.join(config.pathFrom, config.resourceFolder, resourcePath);
-    let toPath = path.join(config.pathTo, 'images', resourcePath);
+    let toPath = path.join(config.pathTo, 'content', 'images', resourcePath);
 
     // 检查源文件是否存在
     if (!fs.existsSync(fromPath)) {
@@ -310,7 +356,6 @@ button.addEventListener('click', async () => {
         await executeQueryAndSave();
     } catch (error) {
         // 错误处理
-        // new Notice(`执行失败：${error.message}`, 5000);
         console.error('执行失败：', error); // 在控制台输出错误信息，按 Ctrl + Shift + I 查看
     } 
 });
